@@ -8,6 +8,11 @@ describe('buildBearerChallenge', () => {
     it.each([
         [{}, 'Bearer'],
         [{ resourceMetadataUrl: METADATA }, `Bearer resource_metadata="${METADATA}"`],
+        [{ error: 'invalid_token' as const }, 'Bearer error="invalid_token"'],
+        [
+            { error: 'invalid_token' as const, resourceMetadataUrl: METADATA, scopes: SCOPES },
+            `Bearer error="invalid_token", resource_metadata="${METADATA}", scope="notes:read notes:write"`,
+        ],
         [{ error: 'insufficient_scope' as const }, 'Bearer error="insufficient_scope"'],
         [
             { error: 'insufficient_scope' as const, resourceMetadataUrl: METADATA },

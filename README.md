@@ -129,14 +129,14 @@ export const validateNotesToken: ValidateToken = (token, baseUrl = 'https://note
     validateBearerToken({ url: `${baseUrl}/api/v1/me`, token })
 ```
 
-| The API answers                       | `validateBearerToken`                                                                        |
-| ------------------------------------- | -------------------------------------------------------------------------------------------- |
-| 2xx                                   | `valid`                                                                                      |
-| 401                                   | `invalid`: the host sends a 401 challenge, and the client refreshes its token                |
-| 403                                   | `forbidden`, or whatever `classifyForbidden(response)` returns                               |
-| any other status, a redirect included | throws `TokenValidationError`, whose `httpStatusCode` lets the host treat a 5xx as transient |
-| nothing within `timeoutMs` (5s)       | rejects with the `TimeoutError`                                                              |
-| a network failure                     | rejects with the error unchanged                                                             |
+| The API answers                       | `validateBearerToken`                                                                         |
+| ------------------------------------- | --------------------------------------------------------------------------------------------- |
+| 2xx                                   | `valid`                                                                                       |
+| 401                                   | `invalid`: the host sends a 401 `invalid_token` challenge, and the client refreshes its token |
+| 403                                   | `forbidden`, or whatever `classifyForbidden(response)` returns                                |
+| any other status, a redirect included | throws `TokenValidationError`, whose `httpStatusCode` lets the host treat a 5xx as transient  |
+| nothing within `timeoutMs` (5s)       | rejects with the `TimeoutError`                                                               |
+| a network failure                     | rejects with the error unchanged                                                              |
 
 The body is drained unread, so a change to the response's shape can't misclassify a token and the connection goes back to the pool. Redirects aren't followed: a sign-in page that answers 200 would otherwise pass for an accepted token. Pass `classifyForbidden` when a 403 can also mean a refusal that consent can't lift, `headers` to tag the request, and `fetch` when the server's API client has its own transport (a proxy from `HTTPS_PROXY`, say), so validation goes the same way as every other call.
 
@@ -168,7 +168,7 @@ async function checkToken(token: string, baseUrl: string): Promise<Response | 'p
         status: forbidden ? 403 : 401,
         headers: {
             'WWW-Authenticate': buildBearerChallenge({
-                error: forbidden ? 'insufficient_scope' : undefined,
+                error: forbidden ? 'insufficient_scope' : 'invalid_token',
                 resourceMetadataUrl:
                     'https://notes.example.com/.well-known/oauth-protected-resource/mcp',
                 scopes: ['notes:read', 'notes:write'],
@@ -179,7 +179,7 @@ async function checkToken(token: string, baseUrl: string): Promise<Response | 'p
 ```
 
 - `isTransientValidationError`: a timeout, a dropped or refused connection, or a 5xx, the rejections worth retrying. A redirect or a 404 is not.
-- `buildBearerChallenge`: `Bearer`, with `error="insufficient_scope"`, `resource_metadata="…"` and `scope="…"` (from `scopes`, space-separated) when given. MCP clients request the challenge's `scope` ahead of the metadata's `scopes_supported`, so pass the resource's scopes to help a client that never reads the metadata.
+- `buildBearerChallenge`: `Bearer`, with `error="…"`, `resource_metadata="…"` and `scope="…"` (from `scopes`, space-separated) when given. Pass `error: 'invalid_token'` on a 401 for a token that was sent and refused, `'insufficient_scope'` on a 403, and no `error` when the request carried no token (RFC 6750 §3.1). MCP clients request the challenge's `scope` ahead of the metadata's `scopes_supported`, so pass the resource's scopes to help a client that never reads the metadata.
 - `createTokenVerdictCache`: verdicts keyed by token and base URL, kept for `ttlMs`, the oldest dropped when full.
 
 ### Contract tests
