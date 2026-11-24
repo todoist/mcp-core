@@ -1,9 +1,12 @@
 export type BearerChallengeOptions = {
     /**
-     * `insufficient_scope` (RFC 6750) for a 403 on a token that lacks a scope, so the client asks
-     * for consent again. Left out for a 401, where the client refreshes its token.
+     * The RFC 6750 error code. `invalid_token` for a 401 on a token that was sent but is revoked,
+     * expired or otherwise refused, so the client knows to refresh it or authorise again.
+     * `insufficient_scope` for a 403 on a token that lacks a scope, so the client asks for consent
+     * again. Left out when the request carried no token at all (RFC 6750 §3.1): there is nothing
+     * wrong with a token that was never sent.
      */
-    error?: 'insufficient_scope'
+    error?: 'invalid_token' | 'insufficient_scope'
     /** The resource's protected-resource metadata (RFC 9728), where the client finds how to authorise. */
     resourceMetadataUrl?: string
     /**
