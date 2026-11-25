@@ -23,17 +23,17 @@ The MCP SDK and Zod are peer dependencies, so the server and the core share one 
 
 ## What's in it
 
-| Module              | Key exports                                                                                                                                                                                                                |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tool`              | `McpTool`, `AnyMcpTool`, `ToolResult`, `ExecuteResult`, `RequiredToolAnnotations`, `ToolSchemaSource` (types)                                                                                                              |
-| `register-tool`     | `createToolRegistrar`, `ToolRegistrarOptions`, `RegisterTool`, `ToolFailure`                                                                                                                                               |
-| `tool-output`       | `getToolOutput`, `getErrorOutput`, `ToolOutputOptions`                                                                                                                                                                     |
-| `sanitize`          | `removeNullFields`, `RemoveNullFieldsOptions`                                                                                                                                                                              |
-| `tool-schemas`      | `getToolSchemas`, `ToolSchemas`                                                                                                                                                                                            |
-| `annotations`       | `getMcpAnnotations`, `formatToolTitle`                                                                                                                                                                                     |
-| `app-meta`          | `normalizeToolMeta`                                                                                                                                                                                                        |
-| `host` (subpath)    | `validateBearerToken`, `ValidateBearerTokenOptions`, `TokenValidationError`, `TokenValidationResult`, `ValidateToken`, `McpServerOptions`, `isTransientValidationError`, `buildBearerChallenge`, `createTokenVerdictCache` |
-| `testing` (subpath) | `describeOutputSchemaNullability`, `describeAdvertisedToolSchemas`, `describeToolAnnotations`, `describeTokenFootprint`, `measureTokenFootprint`, `findNullablePaths`, `listAdvertisedTools`                               |
+| Module              | Key exports                                                                                                                                                                                                                                                                 |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tool`              | `McpTool`, `AnyMcpTool`, `ToolResult`, `ExecuteResult`, `RequiredToolAnnotations`, `ToolSchemaSource` (types)                                                                                                                                                               |
+| `register-tool`     | `createToolRegistrar`, `ToolRegistrarOptions`, `RegisterTool`, `ToolFailure`                                                                                                                                                                                                |
+| `tool-output`       | `getToolOutput`, `getErrorOutput`, `ToolOutputOptions`                                                                                                                                                                                                                      |
+| `sanitize`          | `removeNullFields`, `RemoveNullFieldsOptions`                                                                                                                                                                                                                               |
+| `tool-schemas`      | `getToolSchemas`, `ToolSchemas`                                                                                                                                                                                                                                             |
+| `annotations`       | `getMcpAnnotations`, `formatToolTitle`                                                                                                                                                                                                                                      |
+| `app-meta`          | `normalizeToolMeta`                                                                                                                                                                                                                                                         |
+| `host` (subpath)    | `validateBearerToken`, `ValidateBearerTokenOptions`, `TokenValidationError`, `TokenValidationResult`, `ValidateToken`, `McpServerOptions`, `isTransientValidationError`, `getValidationRateLimit`, `ValidationRateLimit`, `buildBearerChallenge`, `createTokenVerdictCache` |
+| `testing` (subpath) | `describeOutputSchemaNullability`, `describeAdvertisedToolSchemas`, `describeToolAnnotations`, `describeTokenFootprint`, `measureTokenFootprint`, `findNullablePaths`, `listAdvertisedTools`                                                                                |
 
 ## Usage
 
@@ -129,23 +129,24 @@ export const validateNotesToken: ValidateToken = (token, baseUrl = 'https://note
     validateBearerToken({ url: `${baseUrl}/api/v1/me`, token })
 ```
 
-| The API answers                       | `validateBearerToken`                                                                         |
-| ------------------------------------- | --------------------------------------------------------------------------------------------- |
-| 2xx                                   | `valid`                                                                                       |
-| 401                                   | `invalid`: the host sends a 401 `invalid_token` challenge, and the client refreshes its token |
-| 403                                   | `forbidden`, or whatever `classifyForbidden(response)` returns                                |
-| any other status, a redirect included | throws `TokenValidationError`, whose `httpStatusCode` lets the host treat a 5xx as transient  |
-| nothing within `timeoutMs` (5s)       | rejects with the `TimeoutError`                                                               |
-| a network failure                     | rejects with the error unchanged                                                              |
+| The API answers                       | `validateBearerToken`                                                                                                                                                 |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2xx                                   | `valid`                                                                                                                                                               |
+| 401                                   | `invalid`: the host sends a 401 `invalid_token` challenge, and the client refreshes its token                                                                         |
+| 403                                   | `forbidden`, or whatever `classifyForbidden(response)` returns                                                                                                        |
+| any other status, a redirect included | throws `TokenValidationError`, whose `httpStatusCode` lets the host treat a 5xx as transient and a 429 as rate-limited, with the `Retry-After` as `retryAfterSeconds` |
+| nothing within `timeoutMs` (5s)       | rejects with the `TimeoutError`                                                                                                                                       |
+| a network failure                     | rejects with the error unchanged                                                                                                                                      |
 
 The body is drained unread, so a change to the response's shape can't misclassify a token and the connection goes back to the pool. Redirects aren't followed: a sign-in page that answers 200 would otherwise pass for an accepted token. Pass `classifyForbidden` when a 403 can also mean a refusal that consent can't lift, `headers` to tag the request, and `fetch` when the server's API client has its own transport (a proxy from `HTTPS_PROXY`, say), so validation goes the same way as every other call.
 
-On the host's side, three helpers turn a validator's answer into a response, whatever the HTTP framework:
+On the host's side, four helpers turn a validator's answer into a response, whatever the HTTP framework:
 
 ```ts
 import {
     buildBearerChallenge,
     createTokenVerdictCache,
+    getValidationRateLimit,
     isTransientValidationError,
 } from '@todoist/mcp-core/host'
 
@@ -157,6 +158,12 @@ async function checkToken(token: string, baseUrl: string): Promise<Response | 'p
         try {
             result = await validateNotesToken(token, baseUrl)
         } catch (error) {
+            const rateLimit = getValidationRateLimit(error)
+            if (rateLimit) {
+                // Never cached, and not let through: the same limit would refuse the request.
+                const retryAfter = String(rateLimit.retryAfterSeconds ?? 60)
+                return new Response(null, { status: 429, headers: { 'Retry-After': retryAfter } })
+            }
             if (isTransientValidationError(error)) return 'proceed' // or a 503; never cached
             throw error
         }
@@ -178,7 +185,8 @@ async function checkToken(token: string, baseUrl: string): Promise<Response | 'p
 }
 ```
 
-- `isTransientValidationError`: a timeout, a dropped or refused connection, or a 5xx, the rejections worth retrying. A redirect or a 404 is not.
+- `isTransientValidationError`: a timeout, a dropped or refused connection, or a 5xx, the rejections worth retrying. A redirect, a 404 or a 429 is not.
+- `getValidationRateLimit`: for a 429, the API rate-limiting the token's user, `{ retryAfterSeconds }` from its `Retry-After` (undefined when it sent none, so the host picks a wait); undefined for anything else. Answer 429 with `Retry-After` rather than letting the request through, where the same limit would refuse it again.
 - `buildBearerChallenge`: `Bearer`, with `error="…"`, `resource_metadata="…"` and `scope="…"` (from `scopes`, space-separated) when given. Pass `error: 'invalid_token'` on a 401 for a token that was sent and refused, `'insufficient_scope'` on a 403, and no `error` when the request carried no token (RFC 6750 §3.1). MCP clients request the challenge's `scope` ahead of the metadata's `scopes_supported`, so pass the resource's scopes to help a client that never reads the metadata.
 - `createTokenVerdictCache`: verdicts keyed by token and base URL, kept for `ttlMs`, the oldest dropped when full.
 

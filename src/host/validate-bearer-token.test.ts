@@ -139,6 +139,45 @@ describe('validateBearerToken', () => {
         },
     )
 
+    it.each([
+        ['delay-seconds', '120', 120],
+        ['an HTTP date already past', 'Wed, 21 Oct 2015 07:28:00 GMT', 0],
+        ['a number that is not delay-seconds', '-5', undefined],
+        ['a fraction', '1.5', undefined],
+        ['words', 'soon', undefined],
+    ])('reads a Retry-After given as %s', async (_label, retryAfter, retryAfterSeconds) => {
+        reply = { status: 429, headers: { 'retry-after': retryAfter } }
+        const error = await validateBearerToken({ url: baseUrl, token: 'tok' }).catch(
+            (thrown: unknown) => thrown,
+        )
+
+        expect(error).toBeInstanceOf(TokenValidationError)
+        expect(error).toMatchObject({ httpStatusCode: 429, retryAfterSeconds })
+    })
+
+    it('counts a Retry-After HTTP date from now', async () => {
+        const inTwoMinutes = new Date(Date.now() + 120_000).toUTCString()
+        reply = { status: 503, headers: { 'retry-after': inTwoMinutes } }
+        const error = await validateBearerToken({ url: baseUrl, token: 'tok' }).catch(
+            (thrown: unknown) => thrown,
+        )
+
+        // The date has whole seconds and the round trip takes time, so it can land short of two
+        // minutes. Well over 0 still proves it was counted from now rather than taken as absolute.
+        const { retryAfterSeconds } = error as TokenValidationError
+        expect(retryAfterSeconds).toBeGreaterThanOrEqual(110)
+        expect(retryAfterSeconds).toBeLessThanOrEqual(120)
+    })
+
+    it('carries no wait when the response sent no Retry-After', async () => {
+        reply = { status: 429 }
+        const error = await validateBearerToken({ url: baseUrl, token: 'tok' }).catch(
+            (thrown: unknown) => thrown,
+        )
+
+        expect(error).toMatchObject({ httpStatusCode: 429, retryAfterSeconds: undefined })
+    })
+
     it('does not follow a redirect, so a public page answering 200 is no verdict', async () => {
         reply = { status: 302, headers: { location: '/public' } }
         const error = await validateBearerToken({

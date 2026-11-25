@@ -5,16 +5,38 @@ const DEFAULT_TIMEOUT_MS = 5_000
 /**
  * The validation call got an answer that is no verdict on the token: a 5xx, a 429, a redirect,
  * or a 404 from a misconfigured base URL. `httpStatusCode` is what a host reads to treat a 5xx
- * as transient.
+ * as transient and a 429 as the token's user being rate-limited. `retryAfterSeconds` is the
+ * response's `Retry-After`, when it sent one that can be read.
  */
 export class TokenValidationError extends Error {
     readonly httpStatusCode: number
+    readonly retryAfterSeconds: number | undefined
 
-    constructor(httpStatusCode: number) {
+    constructor(
+        httpStatusCode: number,
+        { retryAfterSeconds }: { retryAfterSeconds?: number } = {},
+    ) {
         super(`Token validation failed with status ${httpStatusCode}`)
         this.name = 'TokenValidationError'
         this.httpStatusCode = httpStatusCode
+        this.retryAfterSeconds = retryAfterSeconds
     }
+}
+
+/**
+ * The seconds a `Retry-After` header asks for (RFC 9110 section 10.2.3): its delay-seconds, or the
+ * time until its HTTP date, never below 0. Undefined when the header is missing or unreadable.
+ */
+function parseRetryAfter(value: string | null): number | undefined {
+    if (value === null) return undefined
+    const trimmed = value.trim()
+    if (/^\d+$/.test(trimmed)) return Number(trimmed)
+    // An HTTP date always names its day and month. Without a letter, Date.parse would read a
+    // stray number such as "-5" as a year.
+    if (!/[a-z]/i.test(trimmed)) return undefined
+    const date = Date.parse(trimmed)
+    if (Number.isNaN(date)) return undefined
+    return Math.max(0, Math.ceil((date - Date.now()) / 1000))
 }
 
 export type ValidateBearerTokenOptions = {
@@ -46,8 +68,8 @@ export type ValidateBearerTokenOptions = {
  * Redirects are not followed: a 302 to a sign-in page that anyone can load would otherwise
  * come back 200 and pass for an accepted token.
  *
- * @throws {TokenValidationError} for any other status, a redirect included. Network and timeout
- * errors propagate unchanged.
+ * @throws {TokenValidationError} for any other status, a redirect included, carrying the
+ * response's `Retry-After`. Network and timeout errors propagate unchanged.
  */
 export async function validateBearerToken({
     url,
@@ -73,5 +95,7 @@ export async function validateBearerToken({
     if (response.ok) return 'valid'
     if (response.status === 401) return 'invalid'
     if (response.status === 403) return classifyForbidden(response)
-    throw new TokenValidationError(response.status)
+    throw new TokenValidationError(response.status, {
+        retryAfterSeconds: parseRetryAfter(response.headers.get('retry-after')),
+    })
 }
