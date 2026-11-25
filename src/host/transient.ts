@@ -13,8 +13,12 @@ function codeOf(value: unknown): unknown {
     return (value as { code?: unknown } | undefined)?.code
 }
 
-/** The HTTP status a rejection carries: `TokenValidationError`'s `httpStatusCode`, or a `statusCode`. */
-export function statusOf(error: object): number | undefined {
+/**
+ * The HTTP status a rejection carries, read off any object: `TokenValidationError`'s
+ * `httpStatusCode`, or a `statusCode`. Undefined for anything that is not an object.
+ */
+export function statusOf(error: unknown): number | undefined {
+    if (error === null || typeof error !== 'object') return undefined
     const record = error as Record<string, unknown>
     if (typeof record.httpStatusCode === 'number') return record.httpStatusCode
     if (typeof record.statusCode === 'number') return record.statusCode
@@ -42,10 +46,6 @@ export function isTransientValidationError(error: unknown): boolean {
         if (error.message.includes('fetch failed')) return true
     }
 
-    if (error !== null && typeof error === 'object') {
-        const status = statusOf(error)
-        if (status !== undefined && status >= 500 && status <= 599) return true
-    }
-
-    return false
+    const status = statusOf(error)
+    return status !== undefined && status >= 500 && status <= 599
 }

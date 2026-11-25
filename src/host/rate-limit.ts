@@ -16,7 +16,7 @@ export type ValidationRateLimit = {
  * as a verdict.
  */
 export function getValidationRateLimit(error: unknown): ValidationRateLimit | undefined {
-    if (error === null || typeof error !== 'object' || statusOf(error) !== 429) return undefined
+    if (statusOf(error) !== 429) return undefined
     const retryAfter = (error as { retryAfterSeconds?: unknown }).retryAfterSeconds
     return {
         retryAfterSeconds:
