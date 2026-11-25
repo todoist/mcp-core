@@ -43,11 +43,11 @@ oxlint + oxfmt · semantic-release.
 
 ## Public API surface (`package.json#exports`)
 
-| Subpath                     | Provides                                                                                                                                                                                                                                        | Peers it needs                                                                  |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `.` (root)                  | The tool types, `createToolRegistrar`, `getToolOutput`, `removeNullFields`, schema cache, annotations                                                                                                                                           | `@modelcontextprotocol/server`, `zod`                                           |
-| `@todoist/mcp-core/host`    | `validateBearerToken`, `TokenValidationError`, the host contract types (`TokenValidationResult`, `ValidateToken`, `McpServerOptions`), and the host's helpers (`isTransientValidationError`, `buildBearerChallenge`, `createTokenVerdictCache`) | none                                                                            |
-| `@todoist/mcp-core/testing` | `describeOutputSchemaNullability`, `describeAdvertisedToolSchemas`, `describeToolAnnotations`, `describeTokenFootprint` and the helpers they use                                                                                                | the above; also imports `@modelcontextprotocol/client` and `vitest`, undeclared |
+| Subpath                     | Provides                                                                                                                                                                                                                                                                  | Peers it needs                                                                  |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `.` (root)                  | The tool types, `createToolRegistrar`, `getToolOutput`, `removeNullFields`, schema cache, annotations                                                                                                                                                                     | `@modelcontextprotocol/server`, `zod`                                           |
+| `@todoist/mcp-core/host`    | `validateBearerToken`, `TokenValidationError`, the host contract types (`TokenValidationResult`, `ValidateToken`, `McpServerOptions`), and the host's helpers (`isTransientValidationError`, `getValidationRateLimit`, `buildBearerChallenge`, `createTokenVerdictCache`) | none                                                                            |
+| `@todoist/mcp-core/testing` | `describeOutputSchemaNullability`, `describeAdvertisedToolSchemas`, `describeToolAnnotations`, `describeTokenFootprint` and the helpers they use                                                                                                                          | the above; also imports `@modelcontextprotocol/client` and `vitest`, undeclared |
 
 ## `src/` tree
 
@@ -68,6 +68,7 @@ src/
 │  ├─ server-contract.ts  # TokenValidationResult, ValidateToken, McpServerOptions (types only)
 │  ├─ validate-bearer-token.ts # validateBearerToken, TokenValidationError
 │  ├─ transient.ts        # isTransientValidationError
+│  ├─ rate-limit.ts       # getValidationRateLimit, ValidationRateLimit
 │  ├─ challenge.ts        # buildBearerChallenge
 │  └─ verdict-cache.ts    # createTokenVerdictCache
 └─ testing/               # ./testing subpath: suites the servers run over their own tools

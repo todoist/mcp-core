@@ -1,5 +1,6 @@
 export { buildBearerChallenge, type BearerChallengeOptions } from './challenge.js'
 export type { McpServerOptions, TokenValidationResult, ValidateToken } from './server-contract.js'
+export { getValidationRateLimit, type ValidationRateLimit } from './rate-limit.js'
 export { isTransientValidationError } from './transient.js'
 export {
     TokenValidationError,

@@ -15,8 +15,8 @@ export type TokenValidationResult = 'valid' | 'invalid' | 'forbidden'
  *
  * Resolves only with a verdict on the token. Anything else rejects: a `TokenValidationError`
  * for an unexpected status, or the network or timeout error unchanged. A host can then tell a
- * failure worth retrying (a 5xx, a timeout, a dropped connection) from a verdict, and never
- * caches one as the other.
+ * failure worth retrying (a 5xx, a timeout, a dropped connection) and a rate-limited user (a
+ * 429) from a verdict, and never caches either as one.
  */
 export type ValidateToken = (token: string, baseUrl?: string) => Promise<TokenValidationResult>
 
