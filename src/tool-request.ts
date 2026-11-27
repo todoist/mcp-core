@@ -37,13 +37,18 @@ function canAskWithForm(server: McpServer, serverContext: ServerContext): boolea
 
 /** The `ToolRequest` a tool receives for one MCP call. */
 export function createToolRequest(server: McpServer, serverContext: ServerContext): ToolRequest {
+    function answer(key: string): 'confirmed' | 'declined' | undefined {
+        const responses = serverContext.mcpReq.inputResponses
+        if (responses === undefined || !(key in responses)) return undefined
+        const content = acceptedContent(responses, key, confirmationContent)
+        return content?.confirm === true ? 'confirmed' : 'declined'
+    }
+
     return {
+        answer,
         async confirm({ key, message }): Promise<Confirmation> {
-            const responses = serverContext.mcpReq.inputResponses
-            if (responses !== undefined && key in responses) {
-                const answer = acceptedContent(responses, key, confirmationContent)
-                return answer?.confirm === true ? { status: 'confirmed' } : { status: 'declined' }
-            }
+            const given = answer(key)
+            if (given) return { status: given }
             if (!canAskWithForm(server, serverContext)) return { status: 'unavailable' }
             return {
                 status: 'asking',
