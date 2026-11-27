@@ -25,7 +25,7 @@ The MCP SDK and Zod are peer dependencies, so the server and the core share one 
 
 | Module              | Key exports                                                                                                                                                                                                                                                                 |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tool`              | `McpTool`, `AnyMcpTool`, `ToolResult`, `ExecuteResult`, `RequiredToolAnnotations`, `ToolSchemaSource` (types)                                                                                                                                                               |
+| `tool`              | `McpTool`, `AnyMcpTool`, `ToolResult`, `ExecuteResult`, `ToolRequest`, `Confirmation`, `InputRequiredToolResult`, `RequiredToolAnnotations`, `ToolSchemaSource` (types)                                                                                                     |
 | `register-tool`     | `createToolRegistrar`, `ToolRegistrarOptions`, `RegisterTool`, `ToolFailure`                                                                                                                                                                                                |
 | `tool-output`       | `getToolOutput`, `getErrorOutput`, `ToolOutputOptions`                                                                                                                                                                                                                      |
 | `sanitize`          | `removeNullFields`, `RemoveNullFieldsOptions`                                                                                                                                                                                                                               |
@@ -100,10 +100,36 @@ For each tool this:
 - compiles its input and output schemas to JSON Schema 2020-12 once per process, however many servers register it;
 - titles it "`<titlePrefix>`: `<Title Case Name>`" and defaults `openWorldHint` to false, with the tool's own annotations winning;
 - fills in both forms of an MCP Apps UI resource (`_meta.ui.resourceUri` and `_meta['ui/resourceUri']`) when the tool sets one;
-- shapes every result with `getToolOutput`, below;
+- passes `execute` a `ToolRequest` as its third argument, below;
+- shapes every result with `getToolOutput`, below, except a question for the user (`inputRequired`), which goes out as is;
 - catches anything `execute` throws, passes it to `onError`, and returns `formatError`'s text to the model as an `isError` result.
 
 `createContext` receives the tool and the SDK's `ServerContext`, so a long-running tool can read `serverContext.mcpReq.signal` or send progress notifications.
+
+### Asking the user before acting
+
+A tool about to do something that cannot be undone can ask the user first. `request.confirm` resolves to where the question stands. `message` is a string, or a function when building it costs a lookup:
+
+```ts
+async execute({ id }, api, request?) {
+    const confirmation = (await request?.confirm({
+        key: 'delete',
+        // Built only when the question is asked: not on the retry carrying the answer, nor for
+        // a client that cannot ask.
+        message: async () => `Delete "${(await api.get(id)).title}"? It cannot be restored.`,
+    })) ?? { status: 'unavailable' }
+    if (confirmation.status === 'asking') return confirmation.result
+    if (confirmation.status === 'declined') return { textContent: `Kept note ${id}.` }
+    await api.delete(id) // 'confirmed', or 'unavailable': the client cannot ask
+    return { textContent: `Deleted note ${id}.` }
+}
+```
+
+- `asking`: return `result`. The client shows the question as a form with one ticked "Confirm" box, then calls the tool again with the same arguments and the answer. This works on both protocol revisions: on 2026-07-28 the client sends the call again itself; on 2025-11-25 the SDK asks the client and runs the tool again.
+- `confirmed` or `declined`: the call carries the answer. Declining, dismissing the form, or unticking the box all count as declined.
+- `unavailable`: the client declared no form elicitation, the request is a stateless 2025-11-25 one whose server never saw the client's capabilities, or the tool was called directly rather than over MCP (`request` is then absent). Asking anyway would fail the call, so the tool decides as it would have without asking.
+
+Declare `request` optional (`request?`), so the tool can still be called with two arguments. Give each distinct question its own `key` (such as the item's ID when confirming several in one run): the answer is found by key, so a reused key would act on later items without asking. The tool runs from the top again once the user answers, so nothing may be written before `confirm`. The answer comes from the client: it stops a model acting alone, but is not proof the user saw the question. A `wrapExecute` that rewrites results must keep `inputRequired`.
 
 ### The wire shape of a result
 
