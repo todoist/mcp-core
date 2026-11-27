@@ -81,6 +81,13 @@ export type ToolRequest = {
         key: string
         message: string | (() => string | Promise<string>)
     }) => Promise<Confirmation>
+    /**
+     * The user's answer to the question named `key` when this call carries one, without ever
+     * asking. A tool whose decision to ask can change between the call that asks and the one that
+     * carries the answer (a post that asks only above some audience size, say) reads this first,
+     * so an answer the user gave still stands when the condition no longer holds.
+     */
+    answer: (key: string) => 'confirmed' | 'declined' | undefined
 }
 
 /**

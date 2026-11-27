@@ -131,6 +131,18 @@ async execute({ id }, api, request?) {
 
 Declare `request` optional (`request?`), so the tool can still be called with two arguments. Give each distinct question its own `key` (such as the item's ID when confirming several in one run): the answer is found by key, so a reused key would act on later items without asking. The tool runs from the top again once the user answers, so nothing may be written before `confirm`. The answer comes from the client: it stops a model acting alone, but is not proof the user saw the question. A `wrapExecute` that rewrites results must keep `inputRequired`.
 
+When whether to ask can change between the call that asks and the one that carries the answer (a post that asks only above some audience size, say), read `request.answer(key)` first. It returns `'confirmed'` or `'declined'` when the call carries an answer, and `undefined` otherwise, and never asks, so an answer the user gave still stands when the condition no longer holds:
+
+```ts
+const given = request?.answer('notify')
+if (given === 'declined') return { textContent: 'Not posted.' }
+if (given === undefined && (await api.audience(channelId)) >= 10) {
+    const confirmation = await request?.confirm({ key: 'notify', message: 'Notify everyone?' })
+    if (confirmation?.status === 'asking') return confirmation.result
+    if (confirmation?.status === 'declined') return { textContent: 'Not posted.' }
+}
+```
+
 ### The wire shape of a result
 
 `getToolOutput` turns a `ToolResult` into a `CallToolResult`:

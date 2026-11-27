@@ -13,6 +13,9 @@ import type { Confirmation, McpTool } from './tool.js'
 type Notes = {
     remove: (id: string) => Promise<void>
     getTitle: (id: string) => Promise<string>
+    /** How many people a post would reach. */
+    audience: () => number
+    post: () => Promise<void>
 }
 
 const deleteNote = {
@@ -36,6 +39,32 @@ const deleteNote = {
     },
 } satisfies McpTool<{ id: z.ZodString }, { deleted: z.ZodBoolean }, Notes>
 
+/**
+ * Asks only when a post would reach 10 people or more, so whether it asks can change between the
+ * call that asks and the one that carries the answer.
+ */
+const postNote = {
+    name: 'post-note',
+    description: 'Posts a note to everyone.',
+    parameters: {},
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    async execute(_args, notes, request?) {
+        // An answer already given stands, whatever the audience is now.
+        const given = request?.answer('notify')
+        if (given === 'declined') return { textContent: 'Not posted.' }
+        if (given === undefined && notes.audience() >= 10) {
+            const confirmation = await request?.confirm({
+                key: 'notify',
+                message: `Notify ${notes.audience()} people?`,
+            })
+            if (confirmation?.status === 'asking') return confirmation.result
+            if (confirmation?.status === 'declined') return { textContent: 'Not posted.' }
+        }
+        await notes.post()
+        return { textContent: 'Posted.' }
+    },
+} satisfies McpTool<Record<string, never>, Record<string, never>, Notes>
+
 type ElicitAnswer =
     | { action: 'accept'; content: { confirm: boolean } }
     | { action: 'decline' }
@@ -46,21 +75,30 @@ type ConnectOptions = { elicitation?: ClientCapabilities['elicitation'] }
 
 const remove = vi.fn<Notes['remove']>(async () => undefined)
 const getTitle = vi.fn<Notes['getTitle']>(async () => 'Groceries')
+const post = vi.fn<Notes['post']>(async () => undefined)
+let audienceSize = 11
+/** Runs as the client is asked a question, before it answers. */
+let onAsked: (() => void) | undefined
 const clients: Client[] = []
 
 afterEach(async () => {
     remove.mockClear()
     getTitle.mockClear()
+    post.mockClear()
+    audienceSize = 11
+    onAsked = undefined
     await Promise.all(clients.splice(0).map((client) => client.close()))
 })
 
 function buildServer(): McpServer {
     const server = new McpServer({ name: 'notes', version: '1.0.0' })
-    createToolRegistrar<Notes>({
+    const register = createToolRegistrar<Notes>({
         titlePrefix: 'Notes',
-        createContext: () => ({ remove, getTitle }),
+        createContext: () => ({ remove, getTitle, post, audience: () => audienceSize }),
         formatError: (error) => `Failed: ${error instanceof Error ? error.message : 'unknown'}`,
-    })(server, deleteNote)
+    })
+    register(server, deleteNote)
+    register(server, postNote)
     return server
 }
 
@@ -80,6 +118,7 @@ function buildClient(
     if (answer) {
         client.setRequestHandler('elicitation/create', async (request) => {
             questions.push(request.params)
+            onAsked?.()
             return answer
         })
     }
@@ -165,6 +204,32 @@ describe.each([
         expect(remove).not.toHaveBeenCalled()
     })
 
+    // The tool runs again once the user answers, and by then the post may reach fewer people than
+    // when it asked: the answer given still stands.
+    it('keeps a decline given before the audience shrank below where the tool asks', async () => {
+        const { client, questions } = await connect({ action: 'decline' })
+        onAsked = () => {
+            audienceSize = 9
+        }
+
+        const result = await client.callTool({ name: 'post-note', arguments: {} })
+
+        expect(questions).toEqual([expect.objectContaining({ message: 'Notify 11 people?' })])
+        expect(result.content.at(-1)).toEqual({ type: 'text', text: 'Not posted.' })
+        expect(post).not.toHaveBeenCalled()
+    })
+
+    it('reads no answer, and asks nothing, on a call that carries none', async () => {
+        const { client, questions } = await connect({ action: 'decline' })
+        audienceSize = 9
+
+        const result = await client.callTool({ name: 'post-note', arguments: {} })
+
+        expect(questions).toEqual([])
+        expect(result.content.at(-1)).toEqual({ type: 'text', text: 'Posted.' })
+        expect(post).toHaveBeenCalledTimes(1)
+    })
+
     it('treats a dismissed form as declined', async () => {
         const { client } = await connect({ action: 'cancel' })
 
@@ -238,7 +303,10 @@ describe('ToolRequest.confirm on stateless 2025-11-25 HTTP', () => {
 // confirmation is then unavailable, and the result reads like any other.
 describe('a tool called directly', () => {
     it('acts without asking', async () => {
-        const result = await deleteNote.execute({ id: 'n1' }, { remove, getTitle })
+        const result = await deleteNote.execute(
+            { id: 'n1' },
+            { remove, getTitle, post, audience: () => audienceSize },
+        )
 
         expect(result.textContent).toBe('Deleted note n1 without asking.')
         expect(remove).toHaveBeenCalledWith('n1')
