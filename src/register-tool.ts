@@ -1,5 +1,6 @@
 import type {
     CallToolResult,
+    InputRequiredResult,
     McpServer,
     ServerContext,
     ToolCallback,
@@ -8,8 +9,9 @@ import type { z } from 'zod'
 import { getMcpAnnotations } from './annotations.js'
 import { normalizeToolMeta } from './app-meta.js'
 import { getErrorOutput, getToolOutput, type ToolOutputOptions } from './tool-output.js'
+import { createToolRequest } from './tool-request.js'
 import { getToolSchemas } from './tool-schemas.js'
-import type { AnyMcpTool, ExecuteResult } from './tool.js'
+import type { AnyMcpTool, ExecuteResult, ToolRequest } from './tool.js'
 
 /** A tool call that threw. */
 export type ToolFailure<Context> = {
@@ -72,6 +74,7 @@ export function createToolRegistrar<Context>({
         const execute = tool.execute as (
             args: Record<string, unknown>,
             context: Context,
+            request: ToolRequest,
         ) => ExecuteResult<z.ZodRawShape>
 
         const { input: inputSchema, output: outputSchema } = getToolSchemas(tool)
@@ -79,10 +82,12 @@ export function createToolRegistrar<Context>({
         const callback: ToolCallback<typeof inputSchema> = async (
             args,
             serverContext,
-        ): Promise<CallToolResult> => {
+        ): Promise<CallToolResult | InputRequiredResult> => {
             try {
-                const run = () => execute(args, createContext(tool, serverContext))
+                const request = createToolRequest(server, serverContext)
+                const run = () => execute(args, createContext(tool, serverContext), request)
                 const result = await (wrapExecute ? wrapExecute(tool, run) : run())
+                if (result.inputRequired) return result.inputRequired
                 return getToolOutput(result, outputOptions)
             } catch (error) {
                 onError({ tool, args, error })

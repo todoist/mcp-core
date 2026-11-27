@@ -9,9 +9,11 @@ export {
 export { removeNullFields, type RemoveNullFieldsOptions } from './sanitize.js'
 export type {
     AnyMcpTool,
+    Confirmation,
     ExecuteResult,
     McpTool,
     RequiredToolAnnotations,
+    ToolRequest,
     ToolResult,
     ToolSchemaSource,
 } from './tool.js'

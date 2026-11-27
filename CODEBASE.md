@@ -57,6 +57,8 @@ src/
 ├─ tool.ts                # McpTool<Params, Output, Context>, AnyMcpTool, ToolResult,
 │                         # RequiredToolAnnotations, ToolSchemaSource (types only)
 ├─ register-tool.ts       # createToolRegistrar: the registration callback and its hooks
+├─ tool-request.ts        # createToolRequest: the ToolRequest each MCP call passes `execute`
+│                         # (confirm: ask the user over elicitation, gated on client capabilities)
 ├─ tool-output.ts         # getToolOutput (content order, JSON copy, null stripping), getErrorOutput
 ├─ sanitize.ts            # removeNullFields, with verbatim keys
 ├─ tool-schemas.ts        # getToolSchemas: Zod shapes to Standard Schemas with a cached JSON form
