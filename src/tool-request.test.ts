@@ -1,5 +1,6 @@
 import {
     Client,
+    type ClientCapabilities,
     InMemoryTransport,
     StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client'
@@ -35,7 +36,13 @@ const deleteNote = {
     },
 } satisfies McpTool<{ id: z.ZodString }, { deleted: z.ZodBoolean }, Notes>
 
-type ElicitAnswer = { action: 'accept'; content: { confirm: boolean } } | { action: 'decline' }
+type ElicitAnswer =
+    | { action: 'accept'; content: { confirm: boolean } }
+    | { action: 'decline' }
+    | { action: 'cancel' }
+
+/** What the client declares under `capabilities.elicitation`; `{}` means form mode alone. */
+type ConnectOptions = { elicitation?: ClientCapabilities['elicitation'] }
 
 const remove = vi.fn<Notes['remove']>(async () => undefined)
 const getTitle = vi.fn<Notes['getTitle']>(async () => 'Groceries')
@@ -58,13 +65,16 @@ function buildServer(): McpServer {
 }
 
 /** A client that records each question it is asked and answers with `answer`; none when omitted. */
-function buildClient(answer: ElicitAnswer | undefined, options: { modern?: boolean } = {}) {
+function buildClient(
+    answer: ElicitAnswer | undefined,
+    { modern = false, elicitation = {} }: ConnectOptions & { modern?: boolean } = {},
+) {
     const questions: unknown[] = []
     const client = new Client(
         { name: 'test', version: '1.0.0' },
         {
-            ...(answer ? { capabilities: { elicitation: {} } } : {}),
-            ...(options.modern ? { versionNegotiation: { mode: { pin: '2026-07-28' } } } : {}),
+            ...(answer ? { capabilities: { elicitation } } : {}),
+            ...(modern ? { versionNegotiation: { mode: { pin: '2026-07-28' as const } } } : {}),
         },
     )
     if (answer) {
@@ -78,27 +88,22 @@ function buildClient(answer: ElicitAnswer | undefined, options: { modern?: boole
 }
 
 /** Connects over the 2025-11-25 handshake, where the SDK asks the client itself. */
-async function connectLegacy(answer?: ElicitAnswer) {
-    const { client, questions } = buildClient(answer)
+async function connectLegacy(answer?: ElicitAnswer, options: ConnectOptions = {}) {
+    const { client, questions } = buildClient(answer, options)
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
     await Promise.all([buildServer().connect(serverTransport), client.connect(clientTransport)])
     return { client, questions }
 }
 
-/** Connects on 2026-07-28, where the client answers and calls the tool again. */
-async function connectModern(answer?: ElicitAnswer) {
-    const { client, questions } = buildClient(answer, { modern: true })
-    const handler = createMcpHandler(buildServer)
-    const transport = new StreamableHTTPClientTransport(new URL('http://localhost/mcp'), {
-        fetch: (input, init) => handler.fetch(new Request(input, init)),
-    })
-    await client.connect(transport)
-    return { client, questions }
-}
-
-/** Connects over 2025-11-25 to a stateless HTTP handler, which builds a server per request. */
-async function connectStatelessLegacy(answer?: ElicitAnswer) {
-    const { client, questions } = buildClient(answer)
+/**
+ * Connects to an HTTP handler that builds a server per request: on 2026-07-28 (`modern`) the
+ * client answers and calls the tool again; on 2025-11-25 the requests are stateless.
+ */
+async function connectOverHttp(
+    answer?: ElicitAnswer,
+    options: ConnectOptions & { modern?: boolean } = {},
+) {
+    const { client, questions } = buildClient(answer, options)
     const handler = createMcpHandler(buildServer)
     const transport = new StreamableHTTPClientTransport(new URL('http://localhost/mcp'), {
         fetch: (input, init) => handler.fetch(new Request(input, init)),
@@ -117,7 +122,11 @@ async function deleteN1(client: Client) {
 
 describe.each([
     ['2025-11-25', connectLegacy],
-    ['2026-07-28', connectModern],
+    [
+        '2026-07-28',
+        (answer?: ElicitAnswer, options: ConnectOptions = {}) =>
+            connectOverHttp(answer, { ...options, modern: true }),
+    ],
 ])('ToolRequest.confirm on %s', (_revision, connect) => {
     it('asks the user, then runs the tool once they confirm', async () => {
         const { client, questions } = await connect({
@@ -127,8 +136,16 @@ describe.each([
 
         const result = await deleteN1(client)
 
+        // The box arrives ticked, so accepting the form is what confirms.
         expect(questions).toEqual([
-            expect.objectContaining({ message: 'Delete "Groceries"? It cannot be restored.' }),
+            expect.objectContaining({
+                message: 'Delete "Groceries"? It cannot be restored.',
+                requestedSchema: {
+                    type: 'object',
+                    properties: { confirm: { type: 'boolean', title: 'Confirm', default: true } },
+                    required: ['confirm'],
+                },
+            }),
         ])
         // Built for the question only, not again on the call that carries the answer.
         expect(getTitle).toHaveBeenCalledTimes(1)
@@ -141,6 +158,15 @@ describe.each([
 
     it('does nothing when the user declines', async () => {
         const { client } = await connect({ action: 'decline' })
+
+        const result = await deleteN1(client)
+
+        expect(result).toEqual({ text: 'Kept note n1.', structuredContent: { deleted: false } })
+        expect(remove).not.toHaveBeenCalled()
+    })
+
+    it('treats a dismissed form as declined', async () => {
+        const { client } = await connect({ action: 'cancel' })
 
         const result = await deleteN1(client)
 
@@ -171,6 +197,21 @@ describe.each([
         expect(remove).toHaveBeenCalledTimes(1)
         expect(getTitle).not.toHaveBeenCalled()
     })
+
+    it('reports the question as unavailable to a client that only opens URLs', async () => {
+        const { client, questions } = await connect(
+            { action: 'accept', content: { confirm: true } },
+            { elicitation: { url: {} } },
+        )
+
+        const result = await deleteN1(client)
+
+        expect(questions).toEqual([])
+        expect(result).toEqual({
+            text: 'Deleted note n1 without asking.',
+            structuredContent: { deleted: true },
+        })
+    })
 })
 
 // The server built for a stateless 2025 request never saw the client's initialize, so it has no
@@ -178,7 +219,7 @@ describe.each([
 // rather than fail or wait on a question nobody can see.
 describe('ToolRequest.confirm on stateless 2025-11-25 HTTP', () => {
     it('reports the question as unavailable even when the client declared elicitation', async () => {
-        const { client, questions } = await connectStatelessLegacy({
+        const { client, questions } = await connectOverHttp({
             action: 'accept',
             content: { confirm: true },
         })

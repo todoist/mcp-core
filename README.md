@@ -129,7 +129,7 @@ async execute({ id }, api, request?) {
 - `confirmed` or `declined`: the call carries the answer. Declining, dismissing the form, or unticking the box all count as declined.
 - `unavailable`: the client declared no form elicitation, the request is a stateless 2025-11-25 one whose server never saw the client's capabilities, or the tool was called directly rather than over MCP (`request` is then absent). Asking anyway would fail the call, so the tool decides as it would have without asking.
 
-Declare `request` optional (`request?`), so the tool can still be called with two arguments. The tool runs from the top again once the user answers, so nothing may be written before `confirm`. The answer comes from the client: it stops a model acting alone, but is not proof the user saw the question. A `wrapExecute` that rewrites results must keep `inputRequired`.
+Declare `request` optional (`request?`), so the tool can still be called with two arguments. Give each distinct question its own `key` (such as the item's ID when confirming several in one run): the answer is found by key, so a reused key would act on later items without asking. The tool runs from the top again once the user answers, so nothing may be written before `confirm`. The answer comes from the client: it stops a model acting alone, but is not proof the user saw the question. A `wrapExecute` that rewrites results must keep `inputRequired`.
 
 ### The wire shape of a result
 
