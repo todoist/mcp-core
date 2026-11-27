@@ -37,6 +37,17 @@ export type ExecuteResult<Output extends z.ZodRawShape = z.ZodRawShape> = Promis
 >
 
 /**
+ * A result that asks the user instead of answering. It carries nothing else, and says so in its
+ * type, so a tool's result can still be read as a `ToolResult` whichever branch produced it.
+ */
+export type InputRequiredToolResult = {
+    inputRequired: InputRequiredResult
+    textContent?: undefined
+    structuredContent?: undefined
+    contentItems?: undefined
+}
+
+/**
  * Where a confirmation stands for this call.
  *
  * - `asking`: return `result` from `execute`. The client puts the question to the user and
@@ -46,7 +57,7 @@ export type ExecuteResult<Output extends z.ZodRawShape = z.ZodRawShape> = Promis
  *   come over MCP), so the tool decides on its own, as it would have without asking.
  */
 export type Confirmation =
-    | { status: 'asking'; result: Required<Pick<ToolResult, 'inputRequired'>> }
+    | { status: 'asking'; result: InputRequiredToolResult }
     | { status: 'confirmed' }
     | { status: 'declined' }
     | { status: 'unavailable' }

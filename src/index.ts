@@ -11,6 +11,7 @@ export type {
     AnyMcpTool,
     Confirmation,
     ExecuteResult,
+    InputRequiredToolResult,
     McpTool,
     RequiredToolAnnotations,
     ToolRequest,

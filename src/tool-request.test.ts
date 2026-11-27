@@ -20,7 +20,7 @@ const deleteNote = {
     parameters: { id: z.string() },
     outputSchema: { deleted: z.boolean() },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
-    async execute({ id }, notes, request) {
+    async execute({ id }, notes, request?) {
         const confirmation: Confirmation = (await request?.confirm({
             key: 'delete',
             message: async () => `Delete "${await notes.getTitle(id)}"? It cannot be restored.`,
@@ -190,5 +190,17 @@ describe('ToolRequest.confirm on stateless 2025-11-25 HTTP', () => {
             text: 'Deleted note n1 without asking.',
             structuredContent: { deleted: true },
         })
+    })
+})
+
+// Another integration can call a tool's execute directly, with no MCP request behind it: the
+// confirmation is then unavailable, and the result reads like any other.
+describe('a tool called directly', () => {
+    it('acts without asking', async () => {
+        const result = await deleteNote.execute({ id: 'n1' }, { remove, getTitle })
+
+        expect(result.textContent).toBe('Deleted note n1 without asking.')
+        expect(remove).toHaveBeenCalledWith('n1')
+        expect(getTitle).not.toHaveBeenCalled()
     })
 })

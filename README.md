@@ -25,7 +25,7 @@ The MCP SDK and Zod are peer dependencies, so the server and the core share one 
 
 | Module              | Key exports                                                                                                                                                                                                                                                                 |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tool`              | `McpTool`, `AnyMcpTool`, `ToolResult`, `ExecuteResult`, `ToolRequest`, `Confirmation`, `RequiredToolAnnotations`, `ToolSchemaSource` (types)                                                                                                                                |
+| `tool`              | `McpTool`, `AnyMcpTool`, `ToolResult`, `ExecuteResult`, `ToolRequest`, `Confirmation`, `InputRequiredToolResult`, `RequiredToolAnnotations`, `ToolSchemaSource` (types)                                                                                                     |
 | `register-tool`     | `createToolRegistrar`, `ToolRegistrarOptions`, `RegisterTool`, `ToolFailure`                                                                                                                                                                                                |
 | `tool-output`       | `getToolOutput`, `getErrorOutput`, `ToolOutputOptions`                                                                                                                                                                                                                      |
 | `sanitize`          | `removeNullFields`, `RemoveNullFieldsOptions`                                                                                                                                                                                                                               |
@@ -111,7 +111,7 @@ For each tool this:
 A tool about to do something that cannot be undone can ask the user first. `request.confirm` resolves to where the question stands. `message` is a string, or a function when building it costs a lookup:
 
 ```ts
-async execute({ id }, api, request) {
+async execute({ id }, api, request?) {
     const confirmation = (await request?.confirm({
         key: 'delete',
         // Built only when the question is asked: not on the retry carrying the answer, nor for
@@ -129,7 +129,7 @@ async execute({ id }, api, request) {
 - `confirmed` or `declined`: the call carries the answer. Declining, dismissing the form, or unticking the box all count as declined.
 - `unavailable`: the client declared no form elicitation, the request is a stateless 2025-11-25 one whose server never saw the client's capabilities, or the tool was called directly rather than over MCP (`request` is then absent). Asking anyway would fail the call, so the tool decides as it would have without asking.
 
-The tool runs from the top again once the user answers, so nothing may be written before `confirm`. The answer comes from the client: it stops a model acting alone, but is not proof the user saw the question. A `wrapExecute` that rewrites results must keep `inputRequired`.
+Declare `request` optional (`request?`), so the tool can still be called with two arguments. The tool runs from the top again once the user answers, so nothing may be written before `confirm`. The answer comes from the client: it stops a model acting alone, but is not proof the user saw the question. A `wrapExecute` that rewrites results must keep `inputRequired`.
 
 ### The wire shape of a result
 
