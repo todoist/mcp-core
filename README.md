@@ -108,14 +108,16 @@ For each tool this:
 
 ### Asking the user before acting
 
-A tool about to do something that cannot be undone can ask the user first. `request.confirm` returns where the question stands:
+A tool about to do something that cannot be undone can ask the user first. `request.confirm` resolves to where the question stands. `message` is a string, or a function when building it costs a lookup:
 
 ```ts
 async execute({ id }, api, request) {
-    const confirmation = request?.confirm({
+    const confirmation = (await request?.confirm({
         key: 'delete',
-        message: `Delete note ${id}? It cannot be restored.`,
-    }) ?? { status: 'unavailable' }
+        // Built only when the question is asked: not on the retry carrying the answer, nor for
+        // a client that cannot ask.
+        message: async () => `Delete "${(await api.get(id)).title}"? It cannot be restored.`,
+    })) ?? { status: 'unavailable' }
     if (confirmation.status === 'asking') return confirmation.result
     if (confirmation.status === 'declined') return { textContent: `Kept note ${id}.` }
     await api.delete(id) // 'confirmed', or 'unavailable': the client cannot ask

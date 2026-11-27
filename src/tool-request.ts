@@ -38,7 +38,7 @@ function canAskWithForm(server: McpServer, serverContext: ServerContext): boolea
 /** The `ToolRequest` a tool receives for one MCP call. */
 export function createToolRequest(server: McpServer, serverContext: ServerContext): ToolRequest {
     return {
-        confirm({ key, message }): Confirmation {
+        async confirm({ key, message }): Promise<Confirmation> {
             const responses = serverContext.mcpReq.inputResponses
             if (responses !== undefined && key in responses) {
                 const answer = acceptedContent(responses, key, confirmationContent)
@@ -51,7 +51,7 @@ export function createToolRequest(server: McpServer, serverContext: ServerContex
                     inputRequired: inputRequired({
                         inputRequests: {
                             [key]: inputRequired.elicit({
-                                message,
+                                message: typeof message === 'function' ? await message() : message,
                                 requestedSchema: confirmationForm,
                             }),
                         },

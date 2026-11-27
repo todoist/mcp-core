@@ -57,12 +57,17 @@ export type ToolRequest = {
      * Asks the user to confirm before the tool acts, typically before something that cannot be
      * undone. The tool runs from the top again once the user answers, so it must not write
      * anything before calling this. `key` names the question within the call; `message` says
-     * exactly what will happen.
+     * exactly what will happen. Pass `message` as a function when building it costs a lookup,
+     * such as the name of what is about to be deleted: it is called only when the question is
+     * asked, not on the call that carries the answer or when the client cannot ask.
      *
      * The answer comes from the client and is not proof the user saw the question: this keeps a
      * model from acting alone, not a client from bypassing it.
      */
-    confirm: (question: { key: string; message: string }) => Confirmation
+    confirm: (question: {
+        key: string
+        message: string | (() => string | Promise<string>)
+    }) => Promise<Confirmation>
 }
 
 /**

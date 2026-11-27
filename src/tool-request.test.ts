@@ -9,7 +9,10 @@ import { z } from 'zod'
 import { createToolRegistrar } from './register-tool.js'
 import type { Confirmation, McpTool } from './tool.js'
 
-type Notes = { remove: (id: string) => Promise<void> }
+type Notes = {
+    remove: (id: string) => Promise<void>
+    getTitle: (id: string) => Promise<string>
+}
 
 const deleteNote = {
     name: 'delete-note',
@@ -18,10 +21,10 @@ const deleteNote = {
     outputSchema: { deleted: z.boolean() },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     async execute({ id }, notes, request) {
-        const confirmation: Confirmation = request?.confirm({
+        const confirmation: Confirmation = (await request?.confirm({
             key: 'delete',
-            message: `Delete note ${id}? It cannot be restored.`,
-        }) ?? { status: 'unavailable' }
+            message: async () => `Delete "${await notes.getTitle(id)}"? It cannot be restored.`,
+        })) ?? { status: 'unavailable' }
         if (confirmation.status === 'asking') return confirmation.result
         if (confirmation.status === 'declined') {
             return { textContent: `Kept note ${id}.`, structuredContent: { deleted: false } }
@@ -35,10 +38,12 @@ const deleteNote = {
 type ElicitAnswer = { action: 'accept'; content: { confirm: boolean } } | { action: 'decline' }
 
 const remove = vi.fn<Notes['remove']>(async () => undefined)
+const getTitle = vi.fn<Notes['getTitle']>(async () => 'Groceries')
 const clients: Client[] = []
 
 afterEach(async () => {
     remove.mockClear()
+    getTitle.mockClear()
     await Promise.all(clients.splice(0).map((client) => client.close()))
 })
 
@@ -46,7 +51,7 @@ function buildServer(): McpServer {
     const server = new McpServer({ name: 'notes', version: '1.0.0' })
     createToolRegistrar<Notes>({
         titlePrefix: 'Notes',
-        createContext: () => ({ remove }),
+        createContext: () => ({ remove, getTitle }),
         formatError: (error) => `Failed: ${error instanceof Error ? error.message : 'unknown'}`,
     })(server, deleteNote)
     return server
@@ -123,8 +128,10 @@ describe.each([
         const result = await deleteN1(client)
 
         expect(questions).toEqual([
-            expect.objectContaining({ message: 'Delete note n1? It cannot be restored.' }),
+            expect.objectContaining({ message: 'Delete "Groceries"? It cannot be restored.' }),
         ])
+        // Built for the question only, not again on the call that carries the answer.
+        expect(getTitle).toHaveBeenCalledTimes(1)
         expect(result).toEqual({
             text: 'Deleted note n1 with confirmation.',
             structuredContent: { deleted: true },
@@ -162,6 +169,7 @@ describe.each([
             structuredContent: { deleted: true },
         })
         expect(remove).toHaveBeenCalledTimes(1)
+        expect(getTitle).not.toHaveBeenCalled()
     })
 })
 
